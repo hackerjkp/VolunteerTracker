@@ -1,5 +1,6 @@
 package com.example.volunteertracker;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.content.SharedPreferences;
@@ -39,6 +40,8 @@ public class MainActivity extends AppCompatActivity {
         // initializing shared preferences
         preferences = getSharedPreferences(preferencesName, MODE_PRIVATE);
         retrievingHoursFromPrefs();
+        // button for showing data
+        Button showHours = findViewById(R.id.showHours);
 
         //display check in message
         checkIn.setOnClickListener(new View.OnClickListener() {
@@ -61,12 +64,20 @@ public class MainActivity extends AppCompatActivity {
                 checkOutMessage.setVisibility(View.VISIBLE);
             }
         });
+
+        // showing saved data
+        showHours.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                showSavedData();
+            }
+        });
     }
 
     // method to check in
     private void checkIn() {
         String volunteerName = getVolunteerName();
-        // checking if
+        // checking if user already has hours
         if (!volunteerHours.containsKey(volunteerName)) {
             volunteerHours.put(volunteerName, 0L);
             start_timer_count();
@@ -79,16 +90,29 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // method to check out
+    // adding vest notification here for every time user checks out
     private void checkOut() {
         String volunteerName = getVolunteerName();
+        // creating variable for user having vest
+        boolean hasVest = true;
+
         stop_count_timer();
         long logoutTime = System.currentTimeMillis();
 
+        // checking if user already has hours
         if (volunteerHours.containsKey(volunteerName)) {
             volunteerHours.put(volunteerName, volunteerHours.get(volunteerName) + calculate_hours(logoutTime - loginTime));
         }
         // saving data to shared preferences
         savingHoursToPrefs();
+
+        // checking if user still has vest
+        if (hasVest) {
+            showVestNotification();
+        }
+        else {
+            stop_count_timer();
+        }
     }
 
 
@@ -146,4 +170,31 @@ public class MainActivity extends AppCompatActivity {
         }
         return hm;
     }
+
+    // method to show saved hours
+    private void showSavedData() {
+        // getting data from previous method
+        retrievingHoursFromPrefs();
+        // using similar string builder as HashMap2String's
+        StringBuilder savedDataSB = new StringBuilder();
+        for (String key : volunteerHours.keySet()) {
+            savedDataSB.append(key).append(" : \t").append(volunteerHours.get(key)).append((" Hours\n"));
+        }
+        // displaying saved hours as an alert
+        AlertDialog.Builder savedHours = new AlertDialog.Builder(this);
+        savedHours.setTitle("Saved Volunteer Hours");
+        savedHours.setMessage(savedDataSB.toString());
+        savedHours.setPositiveButton("Confirm", null);
+        savedHours.show();
+    }
+
+    // method to show vest notification
+    private void showVestNotification() {
+        AlertDialog.Builder vestNotification = new AlertDialog.Builder(this);
+        vestNotification.setTitle("Vest Notification");
+        vestNotification.setMessage("You have not returned your vest. Please return it when you finished.");
+        vestNotification.setPositiveButton("Dismiss", null);
+        vestNotification.show();
+    }
 }
+
