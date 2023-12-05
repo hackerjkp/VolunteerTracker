@@ -3,6 +3,7 @@ package com.example.volunteertracker;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
+
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.view.View;
@@ -10,7 +11,29 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 
+import java.io.ByteArrayOutputStream;
 import java.util.HashMap;
+import android.Manifest;
+import android.annotation.SuppressLint;
+import android.content.pm.PackageManager;
+import android.location.Location;
+import android.util.Log;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationCallback;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationResult;
+import com.google.android.gms.location.LocationServices;
+
+import android.content.DialogInterface;
+import android.os.Environment;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+
 
 public class MainActivity extends AppCompatActivity {
 
@@ -18,6 +41,18 @@ public class MainActivity extends AppCompatActivity {
     // each volunteer has their own unique name
     HashMap<String, Long> volunteerHours;
     long loginTime;
+    int checkoutLimit = 18000000; //5 hours
+    StringBuilder savedDataSB = new StringBuilder();
+
+    //creating a notification group
+    private static final String CHANNEL_ID = "VolunteerApp";
+
+    //creating location permissions
+    private static final int LOCATION_PERMISSION_REQUEST_CODE = 123;
+    private static final int PERMISSION_REQUEST_WRITE_EXTERNAL_STORAGE = 1;
+    private FusedLocationProviderClient fusedLocationClient;
+    private LocationCallback locationCallback;
+    private TextView locationText;
 
     // adding shared preferences to save & retrieve volunteer hours
     private static final String preferencesName = "VolunteerTrackerPrefs";
@@ -28,6 +63,24 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
+        locationText = findViewById(R.id.locationText);
+        locationCallback = new LocationCallback() {
+            @Override
+            public void onLocationResult(LocationResult locationResult) {
+                if (locationResult != null) {
+                    Location location = locationResult.getLastLocation();
+                    // Logging the location data
+                    String coordinatesText = "Latitude: " + location.getLatitude() + ", Longitude: " + location.getLongitude();
+                    locationText.setText(coordinatesText);
+                }
+            }
+        };
+
+        // check if the user has on location permissions
+        locationPermissions();
+
 
         //Variables for check in and check out messages
         Button checkIn = (Button)findViewById(R.id.checkIn);
@@ -126,7 +179,20 @@ public class MainActivity extends AppCompatActivity {
 
     // method to calculate difference in time
     private long calculate_hours(long timeDifference) {
+        if(timeDifference >= checkoutLimit){
+            checkout_missed();
+            return 0;
+        }
         return timeDifference / (60 * 60 * 1000);
+    }
+
+    //notify user they missed the time limit while clocking in hours.
+    private void checkout_missed() {
+        AlertDialog.Builder checkoutNotification = new AlertDialog.Builder(this);
+        checkoutNotification.setTitle("Checkout Missed Notification");
+        checkoutNotification.setMessage("You did not submit your hours on time. Please contact your admin.");
+        checkoutNotification.setPositiveButton("Dismiss", null);
+        checkoutNotification.show();
     }
 
     // method to get names of volunteers
@@ -176,7 +242,6 @@ public class MainActivity extends AppCompatActivity {
         // getting data from previous method
         retrievingHoursFromPrefs();
         // using similar string builder as HashMap2String's
-        StringBuilder savedDataSB = new StringBuilder();
         for (String key : volunteerHours.keySet()) {
             savedDataSB.append(key).append(" : \t").append(volunteerHours.get(key)).append((" Hours\n"));
         }
@@ -184,7 +249,14 @@ public class MainActivity extends AppCompatActivity {
         AlertDialog.Builder savedHours = new AlertDialog.Builder(this);
         savedHours.setTitle("Saved Volunteer Hours");
         savedHours.setMessage(savedDataSB.toString());
-        savedHours.setPositiveButton("Confirm", null);
+        savedHours.setPositiveButton("Convert to PDF", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                pdfPermission();
+            }
+        });
+
+        savedHours.setNegativeButton("Confirm", null);
         savedHours.show();
     }
 
@@ -196,5 +268,68 @@ public class MainActivity extends AppCompatActivity {
         vestNotification.setPositiveButton("Dismiss", null);
         vestNotification.show();
     }
+
+    private void convertDataToPDF() {
+        // Generate a PDF file with the saved data
+        String pdfFileName = "VolunteerHours.pdf";
+        File pdfFile = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), pdfFileName);
+
+        try {
+            // Create a FileOutputStream for the PDF file
+            FileOutputStream fileOutputStream = new FileOutputStream(pdfFile);
+            fileOutputStream.write(savedDataSB.toString().getBytes());
+            fileOutputStream.close();
+
+            // Display a success message or open the PDF file using an Intent
+            Log.d("PDF", "PDF file created: " + pdfFile.getAbsolutePath());
+        } catch (IOException e) {
+            e.printStackTrace();
+            // Handle the exception (e.g., display an error message)
+            Log.e("PDF", "Error creating PDF file: " + e.getMessage());
+        }
+    }
+    //LOCATION PERMISSION SECTION
+    @SuppressLint("MissingPermission")
+    private void startLocationUpdates() {
+        LocationRequest locationRequest = LocationRequest.create()
+                .setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY)
+                .setInterval(5000); //this means 5 seconds
+        fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, null);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        // stop location
+        fusedLocationClient.removeLocationUpdates(locationCallback);
+    }
+    private void locationPermissions() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED){
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
+                    LOCATION_PERMISSION_REQUEST_CODE
+            );
+        }
+        else{
+            startLocationUpdates();
+        }
+    }
+    //ask phone for permission to generate a pdf
+    private void pdfPermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+            // if access hasn't been granted yet, ask for it.
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                    PERMISSION_REQUEST_WRITE_EXTERNAL_STORAGE
+            );
+        } else {
+            convertDataToPDF();
+        }
+    }
+
 }
 
