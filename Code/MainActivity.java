@@ -311,6 +311,7 @@ public class MainActivity extends AppCompatActivity {
                     new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
                     LOCATION_PERMISSION_REQUEST_CODE
             );
+            startLocationUpdates();
         }
         else{
             startLocationUpdates();
